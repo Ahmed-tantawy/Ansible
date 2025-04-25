@@ -1,0 +1,18 @@
+ansible1  ansible_become=yes 
+ansible2  ansible_become=yes
+
+[ubuntu:vars]
+ansible_connect=ssh
+[ubuntu]
+ansible1
+
+[macos:vars]
+ansible_connect=ssh
+[macos]
+ansible2
+
+[containers]
+
+
+[all:vars]
+ansible_user=ansible

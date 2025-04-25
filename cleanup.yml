@@ -1,0 +1,15 @@
+---
+- name: Remove Docker container and image
+  hosts: ansible1
+  become: yes
+  tasks:
+    - name: Remove container
+      community.docker.docker_container:
+        name: ansible_target
+        state: absent
+        force_kill: yes
+
+    - name: Remove image
+      community.docker.docker_image:
+        name: ubuntu:22.04
+        state: absent

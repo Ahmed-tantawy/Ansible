@@ -1,0 +1,76 @@
+---
+- name: Create and configure Docker container
+  hosts: ansible1
+  become: yes
+  tasks:
+    - name: Remove conflicting Docker packages
+      apt:
+        name:
+          - docker
+          - docker.io
+          - containerd
+          - runc
+        state: absent
+        purge: yes
+        autoremove: yes
+
+    - name: Install Docker repository dependencies
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+        update_cache: yes
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Get Ubuntu distribution
+      command: lsb_release -cs
+      register: ubuntu_version
+      changed_when: false
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ubuntu_version.stdout }} stable"
+        state: present
+        update_cache: yes
+
+    - name: Install Docker packages
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - python3-docker
+        state: present
+        update_cache: yes
+
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    # Rest of the container creation tasks remain the same
+    - name: Pull Ubuntu image
+      community.docker.docker_image:
+        name: ubuntu:22.04
+        source: pull
+
+    - name: Create container
+      community.docker.docker_container:
+        name: ansible_target
+        image: ubuntu:22.04
+        state: started
+        command: sleep infinity
+        ports:
+          - "2222:22"
+        detach: yes
+
+    # Continue with rest of previous playbook...
