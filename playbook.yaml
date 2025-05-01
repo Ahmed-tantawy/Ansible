@@ -3,67 +3,12 @@
   hosts: ansible1
   become: yes
   tasks:
-    - name: Remove conflicting Docker packages
-      apt:
-        name:
-          - docker
-          - docker.io
-          - containerd
-          - runc
-        state: absent
-        purge: yes
-        autoremove: yes
-
-    - name: Install Docker repository dependencies
-      apt:
-        name:
-          - apt-transport-https
-          - ca-certificates
-          - curl
-          - gnupg
-          - lsb-release
-        state: present
-        update_cache: yes
-
-    - name: Add Docker GPG key
-      apt_key:
-        url: https://download.docker.com/linux/ubuntu/gpg
-        state: present
-
-    - name: Get Ubuntu distribution
-      command: lsb_release -cs
-      register: ubuntu_version
-      changed_when: false
-
-    - name: Add Docker repository
-      apt_repository:
-        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ubuntu_version.stdout }} stable"
-        state: present
-        update_cache: yes
-
-    - name: Install Docker packages
-      apt:
-        name:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
-          - python3-docker
-        state: present
-        update_cache: yes
-
-    - name: Ensure Docker service is running
-      service:
-        name: docker
-        state: started
-        enabled: yes
-
-    # Rest of the container creation tasks remain the same
     - name: Pull Ubuntu image
       community.docker.docker_image:
         name: ubuntu:22.04
         source: pull
 
-    - name: Create container
+    - name: Create container with DNS settings
       community.docker.docker_container:
         name: ansible_target
         image: ubuntu:22.04
@@ -71,6 +16,87 @@
         command: sleep infinity
         ports:
           - "2222:22"
+        dns_servers:
+          - 8.8.8.8
+          - 8.8.4.4
         detach: yes
 
-    # Continue with rest of previous playbook...
+    - name: Wait a moment for container to stabilize
+      pause:
+        seconds: 5
+
+    - name: Update container's apt repositories
+      community.docker.docker_container_exec:
+        container: ansible_target
+        command: bash -c "echo 'nameserver 8.8.8.8' > /etc/resolv.conf && apt-get update"
+
+    - name: Install packages in container
+      community.docker.docker_container_exec:
+        container: ansible_target
+        command: bash -c "apt-get install -y python3 openssh-server sudo"
+        
+    - name: Create SSH directory
+      community.docker.docker_container_exec:
+        container: ansible_target
+        command: mkdir -p /run/sshd
+
+    - name: Set root password
+      community.docker.docker_container_exec:
+        container: ansible_target
+        command: bash -c "echo 'root:password' | chpasswd"
+
+    - name: Configure SSH
+      community.docker.docker_container_exec:
+        container: ansible_target
+        command: sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+
+    - name: Start SSH service
+      community.docker.docker_container_exec:
+        container: ansible_target
+        command: service ssh start
+
+    - name: Get container IP address
+      community.docker.docker_container_info:
+        name: ansible_target
+      register: container_info
+
+    - name: Display container IP
+      debug:
+        var: container_info.container.NetworkSettings.IPAddress
+
+    - name: Add container to inventory
+      add_host:
+        name: ansible_target_container
+        ansible_host: "{{ container_info.container.NetworkSettings.IPAddress }}"
+        ansible_user: root
+        ansible_password: password
+        ansible_become: no
+        groups: containers
+
+- name: Configure the container
+  hosts: containers
+  gather_facts: no
+  tasks:
+    - name: Wait for SSH connection
+      wait_for:
+        port: 22
+        host: "{{ ansible_host }}"
+        delay: 10
+        timeout: 60
+
+    - name: Install web server
+      raw: apt-get update && apt-get install -y nginx python3
+      
+    - name: Gather facts after Python is installed
+      setup:
+
+    - name: Start nginx
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+
+    - name: Create a test page
+      copy:
+        content: "<html><body><h1>Container configured successfully by Ansible</h1></body></html>"
+        dest: /var/www/html/index.html

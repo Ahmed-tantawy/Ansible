@@ -1,0 +1,21 @@
+---
+- name: First playbook
+  hosts: ubuntu,macos
+  gather_facts: true
+  become: true
+  tasks:
+    - name: print some host info
+      ansible.builtin.debug:
+        msg: "the hostname is {{ ansible_nodename }} and it is running {{ansible_distribution}} and version {{ ansible_distribution_version }}"
+    
+    - name: update packages on Ubuntu
+      ansible.builtin.apt:
+        name: "*"
+        state: "latest"
+        update_cache: true
+      when: ansible_distribution == "Ubuntu"
+    
+    - name: update packages on macOS
+      ansible.builtin.command: brew upgrade
+      when: ansible_distribution == "MacOSX"
+      become: false  # Don't use sudo for homebrew
